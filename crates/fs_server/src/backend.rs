@@ -1,16 +1,16 @@
 #![allow(clippy::await_holding_refcell_ref)]
 
-use crate::rpc::RpcError;
 use bytes::Bytes;
 use data_types::{Bucket, DataBlobGuid, DataVgInfo, TraceId};
+use rpc_client_common::RpcError;
+use rpc_client_nss::RpcClientNss;
+use rpc_client_rss::RpcClientRss;
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
+use volume_group_proxy::DataVgProxy;
 
 use crate::config::Config;
 use crate::error::FuseError;
-use crate::rpc_bss::DataVgProxy;
-use crate::rpc_nss::NssRpcClient;
-use crate::rpc_rss::RssRpcClient;
 use data_types::object_layout::{ObjectCoreMetaData, ObjectLayout, ObjectMetaData, ObjectState};
 
 /// Represents a listed entry from NSS
@@ -34,11 +34,14 @@ impl BackendConfig {
         let trace_id = TraceId::new();
 
         // 1. Create RSS client
-        let rss_client = RssRpcClient::new_from_addresses(config.rss_addrs.clone());
+        let rss_client = RpcClientRss::new_from_addresses(
+            config.rss_addrs.clone(),
+            config.rpc_connection_timeout(),
+        );
 
         // 2. Get active NSS address from RSS
         let nss_addr = rss_client
-            .get_active_nss_address(Some(config.rss_rpc_timeout()), &trace_id)
+            .get_active_nss_address(Some(config.rss_rpc_timeout()), &trace_id, 0)
             .await
             .map_err(|e| format!("Failed to get NSS address from RSS: {e}"))?;
         tracing::info!("Got NSS address: {nss_addr}");
@@ -53,7 +56,7 @@ impl BackendConfig {
         // 4. Resolve bucket -> root_blob_name
         let bucket_key = format!("bucket:{}", config.bucket_name);
         let (_version, bucket_json) = rss_client
-            .get(&bucket_key, Some(config.rss_rpc_timeout()), &trace_id)
+            .get(&bucket_key, Some(config.rss_rpc_timeout()), &trace_id, 0)
             .await
             .map_err(|e| format!("Failed to get bucket '{}': {e}", config.bucket_name))?;
 
@@ -78,8 +81,8 @@ impl BackendConfig {
 /// Created once per compio thread via thread_local.
 /// Safety: compio is single-threaded, so RefCell borrows across await are safe.
 pub struct StorageBackend {
-    rss_client: RssRpcClient,
-    nss_client: RefCell<NssRpcClient>,
+    rss_client: RpcClientRss,
+    nss_client: RefCell<RpcClientNss>,
     nss_address: RefCell<String>,
     data_vg_proxy: DataVgProxy,
     root_blob_name: String,
@@ -89,12 +92,17 @@ pub struct StorageBackend {
 impl StorageBackend {
     /// Create a per-thread backend from discovered configuration.
     pub fn new(backend_config: &BackendConfig) -> Result<Self, String> {
-        let nss_client = NssRpcClient::new_from_address(backend_config.nss_address.clone());
-        let rss_client = RssRpcClient::new_from_addresses(backend_config.config.rss_addrs.clone());
+        let conn_timeout = backend_config.config.rpc_connection_timeout();
+        let nss_client =
+            RpcClientNss::new_from_address(backend_config.nss_address.clone(), conn_timeout);
+        let rss_client =
+            RpcClientRss::new_from_addresses(backend_config.config.rss_addrs.clone(), conn_timeout);
         let data_vg_proxy = DataVgProxy::new(
             backend_config.data_vg_info.clone(),
             backend_config.config.rpc_request_timeout(),
-        )?;
+            conn_timeout,
+        )
+        .map_err(|e| e.to_string())?;
 
         Ok(Self {
             rss_client,
@@ -112,13 +120,16 @@ impl StorageBackend {
 
         match self
             .rss_client
-            .get_active_nss_address(Some(self.config.rss_rpc_timeout()), trace_id)
+            .get_active_nss_address(Some(self.config.rss_rpc_timeout()), trace_id, 0)
             .await
         {
             Ok(new_addr) => {
                 if current_addr != new_addr {
                     tracing::info!("NSS address changed: {} -> {}", current_addr, new_addr);
-                    let new_client = NssRpcClient::new_from_address(new_addr.clone());
+                    let new_client = RpcClientNss::new_from_address(
+                        new_addr.clone(),
+                        self.config.rpc_connection_timeout(),
+                    );
                     *self.nss_address.borrow_mut() = new_addr;
                     *self.nss_client.borrow_mut() = new_client;
                     true
@@ -152,6 +163,7 @@ impl StorageBackend {
                     key,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -221,6 +233,7 @@ impl StorageBackend {
                     true,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -311,6 +324,7 @@ impl StorageBackend {
                     false,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -406,6 +420,7 @@ impl StorageBackend {
                     value.clone(),
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -457,6 +472,7 @@ impl StorageBackend {
                     key,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -511,6 +527,7 @@ impl StorageBackend {
                     dst_key,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 
@@ -557,6 +574,7 @@ impl StorageBackend {
                     dst_key,
                     Some(self.config.rpc_request_timeout()),
                     trace_id,
+                    0,
                 )
                 .await;
 

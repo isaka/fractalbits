@@ -4,10 +4,6 @@ mod config;
 mod error;
 mod fs;
 mod inode;
-mod rpc;
-mod rpc_bss;
-mod rpc_nss;
-mod rpc_rss;
 
 use clap::Parser;
 use fractal_fuse::MountOptions;
@@ -25,13 +21,28 @@ struct Opt {
     #[clap(short = 'c', long = "config", help = "Config file path")]
     config_file: Option<PathBuf>,
 
-    #[clap(short = 'b', long = "bucket", env = "FUSE_BUCKET_NAME", help = "Bucket name (overrides config)")]
+    #[clap(
+        short = 'b',
+        long = "bucket",
+        env = "FUSE_BUCKET_NAME",
+        help = "Bucket name (overrides config)"
+    )]
     bucket: Option<String>,
 
-    #[clap(short = 'm', long = "mount", env = "FUSE_MOUNT_POINT", help = "Mount point (overrides config)")]
+    #[clap(
+        short = 'm',
+        long = "mount",
+        env = "FUSE_MOUNT_POINT",
+        help = "Mount point (overrides config)"
+    )]
     mount_point: Option<String>,
 
-    #[clap(short = 'r', long = "read-write", env = "FUSE_READ_WRITE", help = "Enable read-write mode")]
+    #[clap(
+        short = 'r',
+        long = "read-write",
+        env = "FUSE_READ_WRITE",
+        help = "Enable read-write mode"
+    )]
     read_write: bool,
 }
 

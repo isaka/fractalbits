@@ -1,4 +1,4 @@
-use crate::rpc::RpcError;
+use rpc_client_common::RpcError;
 use std::io;
 use thiserror::Error;
 
@@ -24,6 +24,9 @@ pub enum FuseError {
 
     #[error("RPC error: {0}")]
     Rpc(#[from] RpcError),
+
+    #[error("DataVg error: {0}")]
+    DataVg(#[from] volume_group_proxy::DataVgError),
 
     #[error("invalid object state")]
     InvalidState,
@@ -51,6 +54,7 @@ impl From<FuseError> for io::Error {
                     io::Error::from_raw_os_error(libc::EIO)
                 }
             }
+            FuseError::DataVg(_) => io::Error::from_raw_os_error(libc::EIO),
             FuseError::InvalidState => io::Error::from_raw_os_error(libc::EINVAL),
             FuseError::Deserialize(_) => io::Error::from_raw_os_error(libc::EIO),
             FuseError::Internal(_) => io::Error::from_raw_os_error(libc::EIO),

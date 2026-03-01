@@ -9,33 +9,37 @@ path = "src/main.rs"
 
 [dependencies]
 fractal-fuse = { path = "fractal-fuse" }
-compio-runtime = { git = "https://github.com/compio-rs/compio", branch = "master", features = ["time"] }
-compio-net = { git = "https://github.com/compio-rs/compio", branch = "master" }
-compio-io = { git = "https://github.com/compio-rs/compio", branch = "master" }
+compio-runtime.workspace = true
+compio-net.workspace = true
+compio-io.workspace = true
 compio-buf = { git = "https://github.com/compio-rs/compio", branch = "master" }
 
-nss_codec = { workspace = true }
-rss_codec = { workspace = true }
-bss_codec = { workspace = true }
-rpc_codec_common = { workspace = true }
-data_types = { workspace = true }
-metrics_wrapper = { workspace = true }
+rpc_client_common = { workspace = true, features = ["compio-runtime"] }
+rpc_client_bss = { workspace = true, features = ["compio-runtime"] }
+rpc_client_nss = { workspace = true, features = ["compio-runtime"] }
+rpc_client_rss = { workspace = true, features = ["compio-runtime"] }
+volume_group_proxy = { workspace = true, features = ["compio-runtime"] }
 
-prost = { workspace = true }
-bytes = { workspace = true }
-tracing = { workspace = true }
+nss_codec.workspace = true
+rss_codec.workspace = true
+bss_codec.workspace = true
+rpc_codec_common.workspace = true
+data_types.workspace = true
+metrics_wrapper.workspace = true
+
+prost.workspace = true
+bytes.workspace = true
+tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-thiserror = { workspace = true }
-clap = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-rkyv = { workspace = true }
+thiserror.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rkyv.workspace = true
 moka = { version = "0.12", features = ["sync"] }
-dashmap = { workspace = true }
-uuid = { workspace = true }
-config = { workspace = true }
-rand = { workspace = true }
-xxhash-rust = { workspace = true }
-reed-solomon-simd = { workspace = true }
-crc32fast = { workspace = true }
+dashmap.workspace = true
+uuid.workspace = true
+config.workspace = true
+rand.workspace = true
+xxhash-rust.workspace = true
 libc = "0.2"

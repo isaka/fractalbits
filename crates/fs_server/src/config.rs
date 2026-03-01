@@ -10,7 +10,6 @@ pub struct Config {
     #[serde(default = "default_rpc_request_timeout")]
     pub rpc_request_timeout_seconds: u64,
     #[serde(default = "default_rpc_connection_timeout")]
-    #[allow(dead_code)]
     pub rpc_connection_timeout_seconds: u64,
     #[serde(default = "default_rss_rpc_timeout")]
     pub rss_rpc_timeout_seconds: u64,
@@ -61,7 +60,6 @@ impl Config {
         Duration::from_secs(self.rpc_request_timeout_seconds)
     }
 
-    #[allow(dead_code)]
     pub fn rpc_connection_timeout(&self) -> Duration {
         Duration::from_secs(self.rpc_connection_timeout_seconds)
     }
