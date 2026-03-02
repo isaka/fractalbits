@@ -3,8 +3,8 @@
 use bytes::Bytes;
 use data_types::{Bucket, DataBlobGuid, DataVgInfo, TraceId};
 use file_ops::{
-    ListEntry, mpu_get_part_prefix, parse_delete_inode, parse_get_inode, parse_list_inodes,
-    parse_put_inode,
+    ListEntry, blob_blocks_to_delete, create_dir_marker_layout, mpu_get_part_prefix,
+    parse_delete_inode, parse_get_inode, parse_list_inodes, parse_mpu_parts, parse_put_inode,
 };
 use rpc_client_common::RpcError;
 use rpc_client_common::nss_rpc_retry;
@@ -15,7 +15,7 @@ use volume_group_proxy::DataVgProxy;
 
 use crate::config::Config;
 use crate::error::FuseError;
-use data_types::object_layout::{ObjectCoreMetaData, ObjectLayout, ObjectMetaData, ObjectState};
+use data_types::object_layout::ObjectLayout;
 
 /// Discovered configuration from RSS (shared across threads).
 pub struct BackendConfig {
@@ -224,19 +224,7 @@ impl StorageBackend {
         )
         .await?;
 
-        let result = parse_list_inodes(resp)?;
-        let mut parts = Vec::with_capacity(result.entries.len());
-        for entry in result.entries {
-            match entry.layout {
-                Some(layout) => parts.push((entry.key, layout)),
-                None => {
-                    return Err(FuseError::Internal(
-                        "MPU part has empty inode data".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(parts)
+        Ok(parse_mpu_parts(parse_list_inodes(resp)?)?)
     }
 
     /// Read a single block from a data blob via DataVgProxy
@@ -382,18 +370,10 @@ impl StorageBackend {
     /// Delete blob blocks for a given ObjectLayout. Fire-and-forget: logs
     /// warnings on failure but does not return errors.
     pub async fn delete_blob_blocks(&self, layout: &ObjectLayout, trace_id: &TraceId) {
-        let blob_guid = match layout.blob_guid() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let num_blocks = match layout.num_blocks() {
-            Ok(n) => n,
-            Err(_) => return,
-        };
-        for block_number in 0..num_blocks {
+        for (blob_guid, block_number) in blob_blocks_to_delete(layout) {
             if let Err(e) = self
                 .data_vg_proxy
-                .delete_blob(blob_guid, block_number as u32, trace_id)
+                .delete_blob(blob_guid, block_number, trace_id)
                 .await
             {
                 tracing::warn!(
@@ -409,39 +389,10 @@ impl StorageBackend {
     /// Create a directory marker in NSS.
     /// Stores a minimal ObjectLayout with size=0 because NSS rejects empty values.
     pub async fn put_dir_marker(&self, key: &str, trace_id: &TraceId) -> Result<(), FuseError> {
-        let layout = ObjectLayout {
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
-            version_id: ObjectLayout::gen_version_id(),
-            block_size: ObjectLayout::DEFAULT_BLOCK_SIZE,
-            state: ObjectState::Normal(ObjectMetaData {
-                blob_guid: DataBlobGuid {
-                    blob_id: uuid::Uuid::nil(),
-                    volume_id: 0,
-                },
-                core_meta_data: ObjectCoreMetaData {
-                    size: 0,
-                    etag: String::new(),
-                    headers: vec![],
-                    checksum: None,
-                },
-            }),
-        };
+        let layout = create_dir_marker_layout();
         let value: Vec<u8> =
             rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&layout, Vec::new())?;
         self.put_inode(key, Bytes::from(value), trace_id).await?;
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn root_blob_name(&self) -> &str {
-        &self.root_blob_name
-    }
-
-    #[allow(dead_code)]
-    pub fn config(&self) -> &Config {
-        &self.config
     }
 }
