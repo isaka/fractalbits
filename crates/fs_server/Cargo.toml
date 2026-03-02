@@ -14,11 +14,11 @@ compio-net.workspace = true
 compio-io.workspace = true
 compio-buf = { git = "https://github.com/compio-rs/compio", branch = "master" }
 
-rpc_client_common = { workspace = true, features = ["compio-runtime"] }
-rpc_client_bss = { workspace = true, features = ["compio-runtime"] }
-rpc_client_nss = { workspace = true, features = ["compio-runtime"] }
-rpc_client_rss = { workspace = true, features = ["compio-runtime"] }
-volume_group_proxy = { workspace = true, features = ["compio-runtime"] }
+rpc_client_common = { workspace = true, default-features = false, features = ["compio-runtime"] }
+rpc_client_bss = { workspace = true, default-features = false, features = ["compio-runtime"] }
+rpc_client_nss = { workspace = true, default-features = false, features = ["compio-runtime"] }
+rpc_client_rss = { workspace = true, default-features = false, features = ["compio-runtime"] }
+volume_group_proxy = { workspace = true, default-features = false, features = ["compio-runtime"] }
 
 nss_codec.workspace = true
 file_ops.workspace = true
