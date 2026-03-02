@@ -2,20 +2,30 @@
 name = "fractal-fuse"
 version = "0.1.0"
 edition = "2024"
+description = "Async FUSE library using io_uring (FUSE_OVER_IO_URING) and compio runtime for high-performance userspace filesystems on Linux 6.14+"
+license = "Apache-2.0"
+repository = "https://github.com/fractalbits-labs/fractalbits-main"
+readme = "README.md"
+keywords = ["fuse", "io-uring", "filesystem", "async", "linux"]
+categories = ["filesystem", "asynchronous", "os::linux-apis"]
 
 [dependencies]
-io-uring = { git = "https://github.com/tokio-rs/io-uring", rev = "7ec7ae9" }
-compio-runtime = { git = "https://github.com/compio-rs/compio", branch = "master", features = ["time"] }
-compio-driver = { git = "https://github.com/compio-rs/compio", branch = "master", features = ["io-uring-sqe128"] }
-compio-dispatcher = { git = "https://github.com/compio-rs/compio", branch = "master" }
-compio-net = { git = "https://github.com/compio-rs/compio", branch = "master" }
-compio-io = { git = "https://github.com/compio-rs/compio", branch = "master" }
-compio-buf = { git = "https://github.com/compio-rs/compio", branch = "master" }
+# NOTE: git deps required until upstream publishes new versions with:
+#   - io-uring: UringCmd80::addr() method
+#   - compio-runtime: register_files/unregister_files functions
+# Once released, replace with:
+#   io-uring = "0.8"  (or whichever version adds .addr())
+#   compio-runtime = { version = "0.12", features = ["time"] }
+#   compio-driver = { version = "0.12", features = ["io-uring-sqe128"] }
+io-uring = { version = "0.7", git = "https://github.com/tokio-rs/io-uring", rev = "7ec7ae9" }
+compio-runtime = { version = "0.11", git = "https://github.com/compio-rs/compio", branch = "master", features = ["time"] }
+compio-driver = { version = "0.11", git = "https://github.com/compio-rs/compio", branch = "master", features = ["io-uring-sqe128"] }
 libc = "0.2"
 nix = { version = "0.31", features = ["fs", "socket", "uio"] }
-bytes = { workspace = true }
-tracing = { workspace = true }
+bytes = "1"
+tracing = "0.1"
 which = "8"
-pin-project-lite = { workspace = true }
-rpc_codec_common = { workspace = true }
-data_types = { workspace = true }
+pin-project-lite = "0.2"
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
