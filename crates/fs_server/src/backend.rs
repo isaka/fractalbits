@@ -2,22 +2,20 @@
 
 use bytes::Bytes;
 use data_types::{Bucket, DataBlobGuid, DataVgInfo, TraceId};
+use file_ops::{
+    ListEntry, mpu_get_part_prefix, parse_delete_inode, parse_get_inode, parse_list_inodes,
+    parse_put_inode,
+};
 use rpc_client_common::RpcError;
+use rpc_client_common::nss_rpc_retry;
 use rpc_client_nss::RpcClientNss;
 use rpc_client_rss::RpcClientRss;
 use std::cell::RefCell;
-use std::time::{Duration, Instant};
 use volume_group_proxy::DataVgProxy;
 
 use crate::config::Config;
 use crate::error::FuseError;
 use data_types::object_layout::{ObjectCoreMetaData, ObjectLayout, ObjectMetaData, ObjectState};
-
-/// Represents a listed entry from NSS
-pub struct ListEntry {
-    pub key: String,
-    pub layout: Option<ObjectLayout>,
-}
 
 /// Discovered configuration from RSS (shared across threads).
 pub struct BackendConfig {
@@ -114,6 +112,11 @@ impl StorageBackend {
         })
     }
 
+    /// Returns a borrow of the NSS client (for nss_rpc_retry! macro compatibility).
+    pub async fn get_nss_rpc_client(&self) -> Result<std::cell::Ref<'_, RpcClientNss>, FuseError> {
+        Ok(self.nss_client.borrow())
+    }
+
     /// Try to refresh NSS address from RSS when connection fails.
     pub async fn try_refresh_nss_address(&self, trace_id: &TraceId) -> bool {
         let current_addr = self.nss_address.borrow().clone();
@@ -144,72 +147,32 @@ impl StorageBackend {
         }
     }
 
-    /// Get object metadata from NSS. The key should NOT have the trailing \0
+    /// Get inode from NSS. The key should NOT have the trailing \0
     /// (the NSS client adds it).
-    pub async fn get_object(
+    pub async fn get_inode(
         &self,
         key: &str,
         trace_id: &TraceId,
     ) -> Result<ObjectLayout, FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        let resp = loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .get_inode(
-                    &self.root_blob_name,
-                    key,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let resp = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            get_inode(
+                &self.root_blob_name,
+                key,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await?;
 
-            match result {
-                Ok(r) => break r,
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        tracing::warn!(
-                            elapsed_ms = failover_start.elapsed().as_millis(),
-                            error = %e,
-                            "NSS get_inode failed after failover timeout"
-                        );
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
-        };
-
-        let object_bytes = match resp.result.unwrap() {
-            nss_codec::get_inode_response::Result::Ok(res) => res,
-            nss_codec::get_inode_response::Result::ErrNotFound(()) => {
-                return Err(FuseError::NotFound);
-            }
-            nss_codec::get_inode_response::Result::ErrOther(e) => {
-                tracing::error!("NSS get_inode error: {e}");
-                return Err(FuseError::Internal(e));
-            }
-        };
-
-        let object = rkyv::from_bytes::<ObjectLayout, rkyv::rancor::Error>(&object_bytes)?;
-        Ok(object)
+        Ok(parse_get_inode(resp)?)
     }
 
-    /// List objects from NSS. Returns (key, Option<ObjectLayout>).
+    /// List inodes from NSS. Returns (key, Option<ObjectLayout>).
     /// Empty inode data means common prefix (directory).
-    pub async fn list_objects(
+    pub async fn list_inodes(
         &self,
         prefix: &str,
         delimiter: &str,
@@ -217,88 +180,24 @@ impl StorageBackend {
         max_keys: u32,
         trace_id: &TraceId,
     ) -> Result<Vec<ListEntry>, FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        let resp = loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .list_inodes(
-                    &self.root_blob_name,
-                    max_keys,
-                    prefix,
-                    delimiter,
-                    start_after,
-                    true,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let resp = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            list_inodes(
+                &self.root_blob_name,
+                max_keys,
+                prefix,
+                delimiter,
+                start_after,
+                true,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await?;
 
-            match result {
-                Ok(r) => break r,
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        tracing::warn!(
-                            elapsed_ms = failover_start.elapsed().as_millis(),
-                            error = %e,
-                            "NSS list_inodes failed after failover timeout"
-                        );
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
-        };
-
-        let inodes = match resp.result.unwrap() {
-            nss_codec::list_inodes_response::Result::Ok(res) => res.inodes,
-            nss_codec::list_inodes_response::Result::Err(e) => {
-                tracing::error!("NSS list_inodes error: {e}");
-                return Err(FuseError::Internal(e));
-            }
-        };
-
-        let mut entries = Vec::with_capacity(inodes.len());
-        for inode in inodes {
-            if inode.inode.is_empty() {
-                entries.push(ListEntry {
-                    key: inode.key,
-                    layout: None,
-                });
-            } else {
-                match rkyv::from_bytes::<ObjectLayout, rkyv::rancor::Error>(&inode.inode) {
-                    Ok(object) => {
-                        let key = inode.key.trim_end_matches('\0').to_string();
-                        entries.push(ListEntry {
-                            key,
-                            layout: Some(object),
-                        });
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            key = %inode.key,
-                            inode_len = inode.inode.len(),
-                            error = %e,
-                            "list entry: rkyv deserialization failed"
-                        );
-                        return Err(e.into());
-                    }
-                }
-            }
-        }
-        Ok(entries)
+        Ok(parse_list_inodes(resp)?.entries)
     }
 
     /// List MPU parts for a completed multipart upload
@@ -307,60 +206,35 @@ impl StorageBackend {
         key: &str,
         trace_id: &TraceId,
     ) -> Result<Vec<(String, ObjectLayout)>, FuseError> {
-        let mpu_prefix = mpu_get_part_prefix(key, 0);
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        let resp = loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .list_inodes(
-                    &self.root_blob_name,
-                    10000,
-                    &mpu_prefix,
-                    "",
-                    "",
-                    false,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let mpu_prefix = mpu_get_part_prefix(key.to_string(), 0);
+        let resp = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            list_inodes(
+                &self.root_blob_name,
+                10000,
+                &mpu_prefix,
+                "",
+                "",
+                false,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await?;
 
-            match result {
-                Ok(r) => break r,
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
+        let result = parse_list_inodes(resp)?;
+        let mut parts = Vec::with_capacity(result.entries.len());
+        for entry in result.entries {
+            match entry.layout {
+                Some(layout) => parts.push((entry.key, layout)),
+                None => {
+                    return Err(FuseError::Internal(
+                        "MPU part has empty inode data".to_string(),
+                    ));
                 }
             }
-        };
-
-        let inodes = match resp.result.unwrap() {
-            nss_codec::list_inodes_response::Result::Ok(res) => res.inodes,
-            nss_codec::list_inodes_response::Result::Err(e) => {
-                tracing::error!("NSS list_inodes error for MPU parts: {e}");
-                return Err(FuseError::Internal(e));
-            }
-        };
-
-        let mut parts = Vec::with_capacity(inodes.len());
-        for inode in inodes {
-            let object = rkyv::from_bytes::<ObjectLayout, rkyv::rancor::Error>(&inode.inode)?;
-            let key = inode.key.trim_end_matches('\0').to_string();
-            parts.push((key, object));
         }
         Ok(parts)
     }
@@ -407,50 +281,21 @@ impl StorageBackend {
         value: Bytes,
         trace_id: &TraceId,
     ) -> Result<Bytes, FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        let resp = loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .put_inode(
-                    &self.root_blob_name,
-                    key,
-                    value.clone(),
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let resp = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            put_inode(
+                &self.root_blob_name,
+                key,
+                value.clone(),
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await?;
 
-            match result {
-                Ok(r) => break r,
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
-        };
-
-        match resp.result.unwrap() {
-            nss_codec::put_inode_response::Result::Ok(res) => Ok(res),
-            nss_codec::put_inode_response::Result::Err(e) => {
-                tracing::error!("NSS put_inode error: {e}");
-                Err(FuseError::Internal(e))
-            }
-        }
+        Ok(parse_put_inode(resp)?)
     }
 
     /// Delete an inode from NSS. Returns the previous object bytes, or None
@@ -460,97 +305,48 @@ impl StorageBackend {
         key: &str,
         trace_id: &TraceId,
     ) -> Result<Option<Bytes>, FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        let resp = loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .delete_inode(
-                    &self.root_blob_name,
-                    key,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let resp = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            delete_inode(
+                &self.root_blob_name,
+                key,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await?;
 
-            match result {
-                Ok(r) => break r,
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
-        };
-
-        match resp.result.unwrap() {
-            nss_codec::delete_inode_response::Result::Ok(res) => Ok(Some(res)),
-            nss_codec::delete_inode_response::Result::ErrNotFound(()) => Ok(None),
-            nss_codec::delete_inode_response::Result::ErrAlreadyDeleted(()) => Ok(None),
-            nss_codec::delete_inode_response::Result::ErrOther(e) => {
-                tracing::error!("NSS delete_inode error: {e}");
-                Err(FuseError::Internal(e))
-            }
-        }
+        Ok(parse_delete_inode(resp)?)
     }
 
     /// Rename an object (file) in NSS.
-    pub async fn rename_object(
+    pub async fn rename_file(
         &self,
         src_key: &str,
         dst_key: &str,
         trace_id: &TraceId,
     ) -> Result<(), FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .rename_object(
-                    &self.root_blob_name,
-                    src_key,
-                    dst_key,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let result = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            rename_object(
+                &self.root_blob_name,
+                src_key,
+                dst_key,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await;
 
-            match result {
-                Ok(()) => return Ok(()),
-                Err(RpcError::NotFound) => return Err(FuseError::NotFound),
-                Err(RpcError::AlreadyExists) => return Err(FuseError::AlreadyExists),
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
+        match result {
+            Ok(()) => Ok(()),
+            Err(RpcError::NotFound) => Err(FuseError::NotFound),
+            Err(RpcError::AlreadyExists) => Err(FuseError::AlreadyExists),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -561,43 +357,25 @@ impl StorageBackend {
         dst_key: &str,
         trace_id: &TraceId,
     ) -> Result<(), FuseError> {
-        let failover_timeout = Duration::from_secs(30);
-        let failover_start = Instant::now();
-        let mut refresh_attempt = 0u32;
-        loop {
-            let result = self
-                .nss_client
-                .borrow()
-                .rename_folder(
-                    &self.root_blob_name,
-                    src_key,
-                    dst_key,
-                    Some(self.config.rpc_request_timeout()),
-                    trace_id,
-                    0,
-                )
-                .await;
+        let result = nss_rpc_retry!(
+            self.nss_client.borrow(),
+            rename_folder(
+                &self.root_blob_name,
+                src_key,
+                dst_key,
+                Some(self.config.rpc_request_timeout()),
+                trace_id
+            ),
+            self,
+            trace_id
+        )
+        .await;
 
-            match result {
-                Ok(()) => return Ok(()),
-                Err(RpcError::NotFound) => return Err(FuseError::NotFound),
-                Err(RpcError::AlreadyExists) => return Err(FuseError::AlreadyExists),
-                Err(e) if !e.retryable() => return Err(e.into()),
-                Err(e) => {
-                    if failover_start.elapsed() > failover_timeout {
-                        return Err(e.into());
-                    }
-
-                    if self.try_refresh_nss_address(trace_id).await {
-                        refresh_attempt = 0;
-                        continue;
-                    }
-
-                    let backoff_ms = std::cmp::min(200 * (1u64 << refresh_attempt.min(3)), 1000);
-                    compio_runtime::time::sleep(Duration::from_millis(backoff_ms)).await;
-                    refresh_attempt = refresh_attempt.saturating_add(1);
-                }
-            }
+        match result {
+            Ok(()) => Ok(()),
+            Err(RpcError::NotFound) => Err(FuseError::NotFound),
+            Err(RpcError::AlreadyExists) => Err(FuseError::AlreadyExists),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -666,15 +444,4 @@ impl StorageBackend {
     pub fn config(&self) -> &Config {
         &self.config
     }
-}
-
-/// Generate the MPU part prefix key, matching api_server convention
-fn mpu_get_part_prefix(key: &str, part_number: u64) -> String {
-    let mut result = key.to_string();
-    result.push('#');
-    if part_number != 0 {
-        let part_str = format!("{:04}", part_number - 1);
-        result.push_str(&part_str);
-    }
-    result
 }

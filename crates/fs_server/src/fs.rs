@@ -289,7 +289,7 @@ impl FuseFs {
         loop {
             let entries = self
                 .backend()
-                .list_objects(prefix, "/", &start_after, 1000, &trace_id)
+                .list_inodes(prefix, "/", &start_after, 1000, &trace_id)
                 .await?;
 
             if entries.is_empty() {
@@ -669,7 +669,7 @@ impl Filesystem for FuseFs {
         let trace_id = TraceId::new();
 
         // Try as file first
-        match self.backend().get_object(&full_key, &trace_id).await {
+        match self.backend().get_inode(&full_key, &trace_id).await {
             Ok(layout) => {
                 if !layout.is_listable() {
                     return Err(libc::ENOENT);
@@ -692,7 +692,7 @@ impl Filesystem for FuseFs {
         let dir_key = format!("{}/", full_key);
         let entries = self
             .backend()
-            .list_objects(&dir_key, "/", "", 1, &trace_id)
+            .list_inodes(&dir_key, "/", "", 1, &trace_id)
             .await;
 
         match entries {
@@ -754,7 +754,7 @@ impl Filesystem for FuseFs {
                     let key = entry.s3_key.clone();
                     drop(entry);
                     let trace_id = TraceId::new();
-                    let layout = self.backend().get_object(&key, &trace_id).await?;
+                    let layout = self.backend().get_inode(&key, &trace_id).await?;
                     let attr = self.make_file_attr(inode, &layout)?;
                     if let Some(mut entry) = self.inodes.get_mut(inode) {
                         entry.layout = Some(layout);
@@ -819,7 +819,7 @@ impl Filesystem for FuseFs {
             Some(l) => Some(l),
             None => {
                 let trace_id = TraceId::new();
-                match self.backend().get_object(&s3_key, &trace_id).await {
+                match self.backend().get_inode(&s3_key, &trace_id).await {
                     Ok(l) => Some(l),
                     Err(FuseError::NotFound) if is_write => None,
                     Err(e) => return Err(e.into()),
@@ -1136,7 +1136,7 @@ impl Filesystem for FuseFs {
         // List to check existence and emptiness
         let entries = self
             .backend()
-            .list_objects(&key, "/", "", 2, &trace_id)
+            .list_inodes(&key, "/", "", 2, &trace_id)
             .await?;
 
         // If no entries at all, directory doesn't exist
@@ -1187,7 +1187,7 @@ impl Filesystem for FuseFs {
         let trace_id = TraceId::new();
 
         // Determine type by probing NSS backend directly (no inode side effects)
-        let is_dir = match self.backend().get_object(&src_key, &trace_id).await {
+        let is_dir = match self.backend().get_inode(&src_key, &trace_id).await {
             Ok(_) => false,
             Err(FuseError::NotFound) => true,
             Err(e) => return Err(e.into()),
@@ -1219,7 +1219,7 @@ impl Filesystem for FuseFs {
             self.dir_cache.invalidate(&src_dir_key);
         } else {
             self.backend()
-                .rename_object(&src_key, &dst_key, &trace_id)
+                .rename_file(&src_key, &dst_key, &trace_id)
                 .await?;
 
             // Update inode s3_key if cached (read-only lookup, no refcount leak)

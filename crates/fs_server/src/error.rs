@@ -80,3 +80,14 @@ impl From<rkyv::rancor::Error> for FuseError {
         FuseError::Deserialize(e.to_string())
     }
 }
+
+impl From<file_ops::NssError> for FuseError {
+    fn from(e: file_ops::NssError) -> Self {
+        match e {
+            file_ops::NssError::NotFound => FuseError::NotFound,
+            file_ops::NssError::AlreadyExists => FuseError::AlreadyExists,
+            file_ops::NssError::Internal(msg) => FuseError::Internal(msg),
+            file_ops::NssError::Deserialization(msg) => FuseError::Deserialize(msg),
+        }
+    }
+}

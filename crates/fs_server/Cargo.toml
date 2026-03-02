@@ -21,6 +21,7 @@ rpc_client_rss = { workspace = true, features = ["compio-runtime"] }
 volume_group_proxy = { workspace = true, features = ["compio-runtime"] }
 
 nss_codec.workspace = true
+file_ops.workspace = true
 rss_codec.workspace = true
 bss_codec.workspace = true
 rpc_codec_common.workspace = true
