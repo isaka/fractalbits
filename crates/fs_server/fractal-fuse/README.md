@@ -1,5 +1,10 @@
 # fractal-fuse
 
+[![CI](https://github.com/fractalbits-labs/fractalbits-main/actions/workflows/ci.yml/badge.svg)](https://github.com/fractalbits-labs/fractalbits-main/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/fractal-fuse.svg)](https://crates.io/crates/fractal-fuse)
+[![docs.rs](https://docs.rs/fractal-fuse/badge.svg)](https://docs.rs/fractal-fuse)
+[![source](https://img.shields.io/badge/source-GitHub-blue)](https://github.com/fractalbits-labs/fractalbits-main/tree/main/crates/fs_server/fractal-fuse)
+
 An async FUSE (Filesystem in Userspace) library for Linux, built on
 **io_uring** and the **compio** async runtime. It uses the
 `FUSE_OVER_IO_URING` kernel interface (Linux 6.14+) for high-performance
@@ -37,7 +42,7 @@ fractal-fuse = "0.1"
 
 Implement the `Filesystem` trait and run a session:
 
-```rust
+```rust,no_run
 use std::path::Path;
 use fractal_fuse::{Filesystem, MountOptions, Session};
 
@@ -62,7 +67,7 @@ fn main() -> std::io::Result<()> {
 
 ## Architecture
 
-```
+```text
 Session::run()
   |
   +-- fusermount3 (mount, receive /dev/fuse fd)
@@ -79,31 +84,58 @@ Ring entries use page-aligned `mmap` buffers for the header (288 bytes) and
 payload (up to `max_write` bytes, default 1MB). The kernel fills request data
 directly into these buffers, and responses are written back in-place.
 
-## Supported FUSE Operations
+## Filesystem Trait
 
-| Operation | Trait Method |
+Implement the
+[`Filesystem`](https://docs.rs/fractal-fuse/latest/fractal_fuse/filesystem/trait.Filesystem.html)
+trait to handle FUSE operations. All methods are async (`!Send`, matching
+compio's single-threaded model) and default to returning `ENOSYS`. The trait
+itself is `Send + Sync` for sharing via `Arc` across ring threads.
+
+Supported operations follow the low-level
+[FUSE API](https://libfuse.github.io/doxygen/structfuse__operations.html):
+
+### Filesystem
+
+| Operation | Description |
 |-----------|-------------|
-| LOOKUP | `lookup` |
-| FORGET / BATCH_FORGET | `forget` / `batch_forget` |
-| GETATTR / SETATTR | `getattr` / `setattr` |
-| READLINK / SYMLINK | `readlink` / `symlink` |
-| MKNOD / MKDIR | `mknod` / `mkdir` |
-| UNLINK / RMDIR | `unlink` / `rmdir` |
-| RENAME / RENAME2 | `rename` |
-| LINK | `link` |
-| OPEN / RELEASE | `open` / `release` |
-| READ / WRITE | `read` / `write` |
-| FLUSH / FSYNC | `flush` / `fsync` |
-| OPENDIR / RELEASEDIR | `opendir` / `releasedir` |
-| READDIR / READDIRPLUS | `readdir` / `readdirplus` |
-| FSYNCDIR | `fsyncdir` |
-| STATFS | `statfs` |
-| ACCESS | `access` |
-| CREATE | `create` |
-| FALLOCATE | `fallocate` |
-| LSEEK | `lseek` |
-| COPY_FILE_RANGE | `copy_file_range` |
-| DESTROY | `destroy` |
+| `init` | Initialize filesystem (mount) |
+| `destroy` | Clean up filesystem (unmount) |
+| `statfs` | Get filesystem statistics |
+
+### Files
+
+| Operation | Description |
+|-----------|-------------|
+| `lookup` | Look up a directory entry by name |
+| `forget` / `batch_forget` | Release inode reference(s) |
+| `getattr` / `setattr` | Get / set file attributes |
+| `access` | Check file access permissions |
+| `open` / `release` | Open / close a file |
+| `create` | Create and open a file |
+| `read` / `write` | Read / write data |
+| `flush` | Flush cached data |
+| `fsync` | Synchronize file contents |
+| `fallocate` | Allocate or deallocate file space |
+| `lseek` | Find next data or hole |
+| `copy_file_range` | Copy a range of data between files |
+| `mknod` | Create a file node |
+| `unlink` | Remove a file |
+| `link` | Create a hard link |
+| `symlink` / `readlink` | Create / read a symbolic link |
+| `rename` | Rename a file or directory |
+
+### Directories
+
+| Operation | Description |
+|-----------|-------------|
+| `mkdir` / `rmdir` | Create / remove a directory |
+| `opendir` / `releasedir` | Open / close a directory |
+| `readdir` / `readdirplus` | Read directory entries (with optional attributes) |
+| `fsyncdir` | Synchronize directory contents |
+
+See the [trait documentation](https://docs.rs/fractal-fuse/latest/fractal_fuse/filesystem/trait.Filesystem.html)
+for method signatures and semantics.
 
 ## License
 
