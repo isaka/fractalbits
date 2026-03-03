@@ -18,8 +18,9 @@ use std::time::Duration;
 
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use fractal_fuse::{
-    DirectoryEntry, DirectoryEntryPlus, ENOENT, FileAttr, FileType, Filesystem, MountOptions,
-    ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyStatfs, Request, Session, Timestamp,
+    DirectoryEntry, DirectoryEntryPlus, ENOENT, FileAttr, FileType, Filesystem, FsResult,
+    MountOptions, ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyStatfs, Request, Session,
+    Timestamp,
 };
 
 const HELLO_INO: u64 = 2;
@@ -72,12 +73,7 @@ fn hello_attr() -> FileAttr {
 struct HelloFs;
 
 impl Filesystem for HelloFs {
-    async fn lookup(
-        &self,
-        _req: Request,
-        parent: u64,
-        name: &OsStr,
-    ) -> fractal_fuse::Result<ReplyEntry> {
+    async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<ReplyEntry> {
         if parent == FUSE_ROOT_ID && name == "hello" {
             Ok(ReplyEntry {
                 ttl: TTL,
@@ -95,7 +91,7 @@ impl Filesystem for HelloFs {
         inode: u64,
         _fh: Option<u64>,
         _flags: u32,
-    ) -> fractal_fuse::Result<ReplyAttr> {
+    ) -> FsResult<ReplyAttr> {
         match inode {
             FUSE_ROOT_ID => Ok(ReplyAttr {
                 ttl: TTL,
@@ -109,12 +105,7 @@ impl Filesystem for HelloFs {
         }
     }
 
-    async fn open(
-        &self,
-        _req: Request,
-        inode: u64,
-        _flags: u32,
-    ) -> fractal_fuse::Result<ReplyOpen> {
+    async fn open(&self, _req: Request, inode: u64, _flags: u32) -> FsResult<ReplyOpen> {
         if inode == HELLO_INO {
             Ok(ReplyOpen { fh: 0, flags: 0 })
         } else {
@@ -129,7 +120,7 @@ impl Filesystem for HelloFs {
         _fh: u64,
         offset: u64,
         size: u32,
-    ) -> fractal_fuse::Result<ReplyData> {
+    ) -> FsResult<ReplyData> {
         if inode != HELLO_INO {
             return Err(ENOENT);
         }
@@ -152,7 +143,7 @@ impl Filesystem for HelloFs {
         _fh: u64,
         offset: u64,
         _size: u32,
-    ) -> fractal_fuse::Result<Vec<DirectoryEntry>> {
+    ) -> FsResult<Vec<DirectoryEntry>> {
         if inode != FUSE_ROOT_ID {
             return Err(ENOENT);
         }
@@ -186,7 +177,7 @@ impl Filesystem for HelloFs {
         _fh: u64,
         offset: u64,
         _size: u32,
-    ) -> fractal_fuse::Result<Vec<DirectoryEntryPlus>> {
+    ) -> FsResult<Vec<DirectoryEntryPlus>> {
         if inode != FUSE_ROOT_ID {
             return Err(ENOENT);
         }
@@ -222,16 +213,11 @@ impl Filesystem for HelloFs {
         Ok(entries.into_iter().filter(|e| e.offset > offset).collect())
     }
 
-    async fn opendir(
-        &self,
-        _req: Request,
-        _inode: u64,
-        _flags: u32,
-    ) -> fractal_fuse::Result<ReplyOpen> {
+    async fn opendir(&self, _req: Request, _inode: u64, _flags: u32) -> FsResult<ReplyOpen> {
         Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
-    async fn statfs(&self, _req: Request, _inode: u64) -> fractal_fuse::Result<ReplyStatfs> {
+    async fn statfs(&self, _req: Request, _inode: u64) -> FsResult<ReplyStatfs> {
         Ok(ReplyStatfs {
             blocks: 0,
             bfree: 0,
@@ -244,7 +230,7 @@ impl Filesystem for HelloFs {
         })
     }
 
-    async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> fractal_fuse::Result<()> {
+    async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> FsResult<()> {
         Ok(())
     }
 }

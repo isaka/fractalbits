@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 
 use crate::types::*;
 
-pub type Result<T> = std::result::Result<T, Errno>;
+pub type FsResult<T> = std::result::Result<T, Errno>;
 
 /// Async filesystem trait for FUSE operations.
 ///
@@ -16,7 +16,7 @@ pub trait Filesystem: Send + Sync + 'static {
     /// Called once during mount before any other operations. Returns
     /// [`ReplyInit`] containing `max_write` size and capability flags that
     /// the kernel negotiates with the FUSE client.
-    fn init(&self, req: Request) -> impl std::future::Future<Output = Result<ReplyInit>> {
+    fn init(&self, req: Request) -> impl std::future::Future<Output = FsResult<ReplyInit>> {
         let _ = req;
         async { Ok(ReplyInit::default()) }
     }
@@ -41,7 +41,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         parent: Inode,
         name: &OsStr,
-    ) -> impl std::future::Future<Output = Result<ReplyEntry>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyEntry>> {
         let _ = (req, parent, name);
         async { Err(ENOSYS) }
     }
@@ -78,7 +78,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: Option<u64>,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyAttr>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyAttr>> {
         let _ = (req, inode, fh, flags);
         async { Err(ENOSYS) }
     }
@@ -95,7 +95,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: Option<u64>,
         set_attr: SetAttr,
-    ) -> impl std::future::Future<Output = Result<ReplyAttr>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyAttr>> {
         let _ = (req, inode, fh, set_attr);
         async { Err(ENOSYS) }
     }
@@ -105,7 +105,7 @@ pub trait Filesystem: Send + Sync + 'static {
         &self,
         req: Request,
         inode: Inode,
-    ) -> impl std::future::Future<Output = Result<ReplyReadlink>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyReadlink>> {
         let _ = (req, inode);
         async { Err(ENOSYS) }
     }
@@ -120,7 +120,7 @@ pub trait Filesystem: Send + Sync + 'static {
         parent: Inode,
         name: &OsStr,
         link: &OsStr,
-    ) -> impl std::future::Future<Output = Result<ReplyEntry>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyEntry>> {
         let _ = (req, parent, name, link);
         async { Err(ENOSYS) }
     }
@@ -136,7 +136,7 @@ pub trait Filesystem: Send + Sync + 'static {
         name: &OsStr,
         mode: u32,
         rdev: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyEntry>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyEntry>> {
         let _ = (req, parent, name, mode, rdev);
         async { Err(ENOSYS) }
     }
@@ -152,7 +152,7 @@ pub trait Filesystem: Send + Sync + 'static {
         name: &OsStr,
         mode: u32,
         umask: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyEntry>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyEntry>> {
         let _ = (req, parent, name, mode, umask);
         async { Err(ENOSYS) }
     }
@@ -166,7 +166,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         parent: Inode,
         name: &OsStr,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, parent, name);
         async { Err(ENOSYS) }
     }
@@ -177,7 +177,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         parent: Inode,
         name: &OsStr,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, parent, name);
         async { Err(ENOSYS) }
     }
@@ -195,7 +195,7 @@ pub trait Filesystem: Send + Sync + 'static {
         new_parent: Inode,
         new_name: &OsStr,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, parent, name, new_parent, new_name, flags);
         async { Err(ENOSYS) }
     }
@@ -210,7 +210,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         new_parent: Inode,
         new_name: &OsStr,
-    ) -> impl std::future::Future<Output = Result<ReplyEntry>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyEntry>> {
         let _ = (req, inode, new_parent, new_name);
         async { Err(ENOSYS) }
     }
@@ -227,7 +227,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         inode: Inode,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyOpen>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyOpen>> {
         let _ = (req, inode, flags);
         async { Err(ENOSYS) }
     }
@@ -244,7 +244,7 @@ pub trait Filesystem: Send + Sync + 'static {
         fh: u64,
         offset: u64,
         size: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyData>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyData>> {
         let _ = (req, inode, fh, offset, size);
         async { Err(ENOSYS) }
     }
@@ -263,7 +263,7 @@ pub trait Filesystem: Send + Sync + 'static {
         data: &[u8],
         write_flags: u32,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyWrite>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyWrite>> {
         let _ = (req, inode, fh, offset, data, write_flags, flags);
         async { Err(ENOSYS) }
     }
@@ -280,7 +280,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: u64,
         lock_owner: u64,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, lock_owner);
         async { Err(ENOSYS) }
     }
@@ -298,7 +298,7 @@ pub trait Filesystem: Send + Sync + 'static {
         flags: u32,
         lock_owner: u64,
         flush: bool,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, flags, lock_owner, flush);
         async { Err(ENOSYS) }
     }
@@ -313,7 +313,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: u64,
         datasync: bool,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, datasync);
         async { Err(ENOSYS) }
     }
@@ -327,7 +327,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         inode: Inode,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyOpen>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyOpen>> {
         let _ = (req, inode, flags);
         async { Err(ENOSYS) }
     }
@@ -346,7 +346,7 @@ pub trait Filesystem: Send + Sync + 'static {
         fh: u64,
         offset: u64,
         size: u32,
-    ) -> impl std::future::Future<Output = Result<Vec<DirectoryEntry>>> {
+    ) -> impl std::future::Future<Output = FsResult<Vec<DirectoryEntry>>> {
         let _ = (req, inode, fh, offset, size);
         async { Err(ENOSYS) }
     }
@@ -363,7 +363,7 @@ pub trait Filesystem: Send + Sync + 'static {
         fh: u64,
         offset: u64,
         size: u32,
-    ) -> impl std::future::Future<Output = Result<Vec<DirectoryEntryPlus>>> {
+    ) -> impl std::future::Future<Output = FsResult<Vec<DirectoryEntryPlus>>> {
         let _ = (req, inode, fh, offset, size);
         async { Err(ENOSYS) }
     }
@@ -375,7 +375,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: u64,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, flags);
         async { Err(ENOSYS) }
     }
@@ -390,7 +390,7 @@ pub trait Filesystem: Send + Sync + 'static {
         inode: Inode,
         fh: u64,
         datasync: bool,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, datasync);
         async { Err(ENOSYS) }
     }
@@ -405,7 +405,7 @@ pub trait Filesystem: Send + Sync + 'static {
         &self,
         req: Request,
         inode: Inode,
-    ) -> impl std::future::Future<Output = Result<ReplyStatfs>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyStatfs>> {
         let _ = (req, inode);
         async {
             Ok(ReplyStatfs {
@@ -431,7 +431,7 @@ pub trait Filesystem: Send + Sync + 'static {
         req: Request,
         inode: Inode,
         mask: u32,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, mask);
         async { Err(ENOSYS) }
     }
@@ -449,7 +449,7 @@ pub trait Filesystem: Send + Sync + 'static {
         name: &OsStr,
         mode: u32,
         flags: u32,
-    ) -> impl std::future::Future<Output = Result<ReplyCreate>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyCreate>> {
         let _ = (req, parent, name, mode, flags);
         async { Err(ENOSYS) }
     }
@@ -468,7 +468,7 @@ pub trait Filesystem: Send + Sync + 'static {
         offset: u64,
         length: u64,
         mode: u32,
-    ) -> impl std::future::Future<Output = Result<()>> {
+    ) -> impl std::future::Future<Output = FsResult<()>> {
         let _ = (req, inode, fh, offset, length, mode);
         async { Err(ENOSYS) }
     }
@@ -484,7 +484,7 @@ pub trait Filesystem: Send + Sync + 'static {
         fh: u64,
         offset: u64,
         whence: u32,
-    ) -> impl std::future::Future<Output = Result<u64>> {
+    ) -> impl std::future::Future<Output = FsResult<u64>> {
         let _ = (req, inode, fh, offset, whence);
         async { Err(ENOSYS) }
     }
@@ -506,7 +506,7 @@ pub trait Filesystem: Send + Sync + 'static {
         off_out: u64,
         length: u64,
         flags: u64,
-    ) -> impl std::future::Future<Output = Result<ReplyWrite>> {
+    ) -> impl std::future::Future<Output = FsResult<ReplyWrite>> {
         let _ = (
             req, inode_in, fh_in, off_in, inode_out, fh_out, off_out, length, flags,
         );

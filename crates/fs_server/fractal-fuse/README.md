@@ -37,7 +37,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fractal-fuse = "0.1"
+fractal-fuse = "0.2"
 ```
 
 Implement the `Filesystem` trait and run a session:

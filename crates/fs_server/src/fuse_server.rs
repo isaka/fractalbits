@@ -36,7 +36,7 @@ fn fs_err(e: FsError) -> Errno {
 }
 
 impl Filesystem for FuseServer {
-    async fn init(&self, _req: Request) -> fractal_fuse::Result<ReplyInit> {
+    async fn init(&self, _req: Request) -> FsResult<ReplyInit> {
         self.vfs.vfs_init();
         Ok(ReplyInit {
             max_write: 1024 * 1024,
@@ -48,12 +48,7 @@ impl Filesystem for FuseServer {
         self.vfs.vfs_destroy();
     }
 
-    async fn lookup(
-        &self,
-        _req: Request,
-        parent: u64,
-        name: &OsStr,
-    ) -> fractal_fuse::Result<ReplyEntry> {
+    async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<ReplyEntry> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         let attr = self
             .vfs
@@ -77,7 +72,7 @@ impl Filesystem for FuseServer {
         inode: u64,
         fh: Option<u64>,
         _flags: u32,
-    ) -> fractal_fuse::Result<ReplyAttr> {
+    ) -> FsResult<ReplyAttr> {
         let attr = self.vfs.vfs_getattr(inode, fh).await.map_err(fs_err)?;
         Ok(ReplyAttr {
             ttl: TTL,
@@ -91,7 +86,7 @@ impl Filesystem for FuseServer {
         inode: u64,
         fh: Option<u64>,
         set_attr: SetAttr,
-    ) -> fractal_fuse::Result<ReplyAttr> {
+    ) -> FsResult<ReplyAttr> {
         // Only handle truncate to zero
         if let Some(0) = set_attr.size {
             let fh_id = fh.ok_or(libc::ENOSYS)?;
@@ -114,7 +109,7 @@ impl Filesystem for FuseServer {
         })
     }
 
-    async fn open(&self, _req: Request, inode: u64, flags: u32) -> fractal_fuse::Result<ReplyOpen> {
+    async fn open(&self, _req: Request, inode: u64, flags: u32) -> FsResult<ReplyOpen> {
         let fh = self.vfs.vfs_open(inode, flags).await.map_err(fs_err)?;
         Ok(ReplyOpen { fh, flags: 0 })
     }
@@ -126,7 +121,7 @@ impl Filesystem for FuseServer {
         fh: u64,
         offset: u64,
         size: u32,
-    ) -> fractal_fuse::Result<ReplyData> {
+    ) -> FsResult<ReplyData> {
         let data = self.vfs.vfs_read(fh, offset, size).await.map_err(fs_err)?;
         Ok(ReplyData { data })
     }
@@ -140,18 +135,12 @@ impl Filesystem for FuseServer {
         data: &[u8],
         _write_flags: u32,
         _flags: u32,
-    ) -> fractal_fuse::Result<ReplyWrite> {
+    ) -> FsResult<ReplyWrite> {
         let written = self.vfs.vfs_write(fh, offset, data).await.map_err(fs_err)?;
         Ok(ReplyWrite { written })
     }
 
-    async fn flush(
-        &self,
-        _req: Request,
-        _inode: u64,
-        fh: u64,
-        _lock_owner: u64,
-    ) -> fractal_fuse::Result<()> {
+    async fn flush(&self, _req: Request, _inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {
         self.vfs.vfs_flush(fh).await.map_err(fs_err)
     }
 
@@ -163,7 +152,7 @@ impl Filesystem for FuseServer {
         _flags: u32,
         _lock_owner: u64,
         _flush: bool,
-    ) -> fractal_fuse::Result<()> {
+    ) -> FsResult<()> {
         self.vfs.vfs_release(fh).await.map_err(fs_err)
     }
 
@@ -174,7 +163,7 @@ impl Filesystem for FuseServer {
         name: &OsStr,
         _mode: u32,
         _flags: u32,
-    ) -> fractal_fuse::Result<ReplyCreate> {
+    ) -> FsResult<ReplyCreate> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         let (attr, fh) = self
             .vfs
@@ -190,7 +179,7 @@ impl Filesystem for FuseServer {
         })
     }
 
-    async fn unlink(&self, _req: Request, parent: u64, name: &OsStr) -> fractal_fuse::Result<()> {
+    async fn unlink(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         self.vfs.vfs_unlink(parent, name_str).await.map_err(fs_err)
     }
@@ -202,7 +191,7 @@ impl Filesystem for FuseServer {
         name: &OsStr,
         _mode: u32,
         _umask: u32,
-    ) -> fractal_fuse::Result<ReplyEntry> {
+    ) -> FsResult<ReplyEntry> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         let attr = self.vfs.vfs_mkdir(parent, name_str).await.map_err(fs_err)?;
         Ok(ReplyEntry {
@@ -212,7 +201,7 @@ impl Filesystem for FuseServer {
         })
     }
 
-    async fn rmdir(&self, _req: Request, parent: u64, name: &OsStr) -> fractal_fuse::Result<()> {
+    async fn rmdir(&self, _req: Request, parent: u64, name: &OsStr) -> FsResult<()> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         self.vfs.vfs_rmdir(parent, name_str).await.map_err(fs_err)
     }
@@ -225,7 +214,7 @@ impl Filesystem for FuseServer {
         new_parent: u64,
         new_name: &OsStr,
         _flags: u32,
-    ) -> fractal_fuse::Result<()> {
+    ) -> FsResult<()> {
         let name_str = name.to_str().ok_or(libc::EINVAL)?;
         let new_name_str = new_name.to_str().ok_or(libc::EINVAL)?;
         self.vfs
@@ -234,12 +223,7 @@ impl Filesystem for FuseServer {
             .map_err(fs_err)
     }
 
-    async fn opendir(
-        &self,
-        _req: Request,
-        inode: u64,
-        _flags: u32,
-    ) -> fractal_fuse::Result<ReplyOpen> {
+    async fn opendir(&self, _req: Request, inode: u64, _flags: u32) -> FsResult<ReplyOpen> {
         let fh = self.vfs.vfs_opendir(inode).map_err(fs_err)?;
         Ok(ReplyOpen { fh, flags: 0 })
     }
@@ -251,7 +235,7 @@ impl Filesystem for FuseServer {
         _fh: u64,
         offset: u64,
         _size: u32,
-    ) -> fractal_fuse::Result<Vec<DirectoryEntry>> {
+    ) -> FsResult<Vec<DirectoryEntry>> {
         let entries = self.vfs.vfs_readdir(parent, offset).await.map_err(fs_err)?;
         Ok(entries
             .into_iter()
@@ -275,7 +259,7 @@ impl Filesystem for FuseServer {
         _fh: u64,
         offset: u64,
         _size: u32,
-    ) -> fractal_fuse::Result<Vec<DirectoryEntryPlus>> {
+    ) -> FsResult<Vec<DirectoryEntryPlus>> {
         let entries = self
             .vfs
             .vfs_readdirplus(parent, offset)
@@ -299,17 +283,11 @@ impl Filesystem for FuseServer {
             .collect())
     }
 
-    async fn releasedir(
-        &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _flags: u32,
-    ) -> fractal_fuse::Result<()> {
+    async fn releasedir(&self, _req: Request, _inode: u64, _fh: u64, _flags: u32) -> FsResult<()> {
         Ok(())
     }
 
-    async fn statfs(&self, _req: Request, _inode: u64) -> fractal_fuse::Result<ReplyStatfs> {
+    async fn statfs(&self, _req: Request, _inode: u64) -> FsResult<ReplyStatfs> {
         let s = self.vfs.vfs_statfs();
         Ok(ReplyStatfs {
             blocks: s.blocks,
