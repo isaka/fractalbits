@@ -162,6 +162,13 @@ impl XdrWriter {
         self.buf.freeze()
     }
 
+    /// Truncate the buffer to `len` bytes, discarding any data after that point.
+    /// Used by the dispatch layer to discard partial success data before encoding
+    /// an error response.
+    pub fn truncate(&mut self, len: usize) {
+        self.buf.truncate(len);
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.buf
     }

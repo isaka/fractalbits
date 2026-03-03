@@ -9,28 +9,38 @@ pub mod xdr;
 pub use nfs3_types::*;
 pub use server::{NfsServerConfig, run};
 
+/// Result type for NFS operations: Ok(()) means the success response was
+/// already encoded into the XdrWriter; Err(status) is encoded by the
+/// dispatch layer so filesystem code only needs to return the error code.
+pub type NfsResult = Result<(), Nfsstat3>;
+
 /// Trait for implementing an NFSv3 filesystem.
 ///
 /// Each method receives pre-decoded arguments and an XdrWriter for encoding
 /// the response body (status + result data). The RPC accepted header is
 /// already written before these methods are called.
 ///
+/// On success, methods encode the OK response into the writer and return
+/// `Ok(())`. On failure, methods return `Err(Nfsstat3::...)` and the
+/// dispatch layer encodes the error response (truncating any partial writes).
+///
 /// All methods are async and !Send (compio single-threaded model).
 /// The trait itself is Send + Sync for Arc sharing across threads.
 pub trait Nfs3Filesystem: Send + Sync + 'static {
-    fn getattr(&self, fh: &NfsFh3, w: &mut xdr::XdrWriter)
-    -> impl std::future::Future<Output = ()>;
+    fn getattr(
+        &self,
+        fh: &NfsFh3,
+        w: &mut xdr::XdrWriter,
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn setattr(
         &self,
         fh: &NfsFh3,
         attrs: &Sattr3,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (fh, attrs);
-        async {
-            nfs3_wire::encode_setattr_err(w, Nfsstat3::NotSupp);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (fh, attrs, w);
+        async { Err(Nfsstat3::NotSupp) }
     }
 
     fn lookup(
@@ -38,7 +48,7 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         dir_fh: &NfsFh3,
         name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn access(
         &self,
@@ -47,7 +57,7 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         uid: u32,
         gid: u32,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn read(
         &self,
@@ -55,7 +65,7 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         offset: u64,
         count: u32,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn write(
         &self,
@@ -64,11 +74,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         data: &[u8],
         stable: StableHow,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (fh, offset, data, stable);
-        async {
-            nfs3_wire::encode_write_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (fh, offset, data, stable, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn create(
@@ -76,11 +84,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         dir_fh: &NfsFh3,
         name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (dir_fh, name);
-        async {
-            nfs3_wire::encode_create_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (dir_fh, name, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn mkdir(
@@ -88,11 +94,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         dir_fh: &NfsFh3,
         name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (dir_fh, name);
-        async {
-            nfs3_wire::encode_mkdir_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (dir_fh, name, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn remove(
@@ -100,11 +104,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         dir_fh: &NfsFh3,
         name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (dir_fh, name);
-        async {
-            nfs3_wire::encode_remove_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (dir_fh, name, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn rmdir(
@@ -112,11 +114,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         dir_fh: &NfsFh3,
         name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (dir_fh, name);
-        async {
-            nfs3_wire::encode_remove_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (dir_fh, name, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn rename(
@@ -126,11 +126,9 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         to_dir: &NfsFh3,
         to_name: &str,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (from_dir, from_name, to_dir, to_name);
-        async {
-            nfs3_wire::encode_rename_err(w, Nfsstat3::Rofs);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (from_dir, from_name, to_dir, to_name, w);
+        async { Err(Nfsstat3::Rofs) }
     }
 
     fn readdir(
@@ -139,7 +137,7 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         cookie: u64,
         count: u32,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn readdirplus(
         &self,
@@ -147,17 +145,25 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         cookie: u64,
         maxcount: u32,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
-    fn fsstat(&self, fh: &NfsFh3, w: &mut xdr::XdrWriter) -> impl std::future::Future<Output = ()>;
+    fn fsstat(
+        &self,
+        fh: &NfsFh3,
+        w: &mut xdr::XdrWriter,
+    ) -> impl std::future::Future<Output = NfsResult>;
 
-    fn fsinfo(&self, fh: &NfsFh3, w: &mut xdr::XdrWriter) -> impl std::future::Future<Output = ()>;
+    fn fsinfo(
+        &self,
+        fh: &NfsFh3,
+        w: &mut xdr::XdrWriter,
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn pathconf(
         &self,
         fh: &NfsFh3,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()>;
+    ) -> impl std::future::Future<Output = NfsResult>;
 
     fn commit(
         &self,
@@ -165,10 +171,8 @@ pub trait Nfs3Filesystem: Send + Sync + 'static {
         offset: u64,
         count: u32,
         w: &mut xdr::XdrWriter,
-    ) -> impl std::future::Future<Output = ()> {
-        let _ = (fh, offset, count);
-        async {
-            nfs3_wire::encode_commit_err(w, Nfsstat3::NotSupp);
-        }
+    ) -> impl std::future::Future<Output = NfsResult> {
+        let _ = (fh, offset, count, w);
+        async { Err(Nfsstat3::NotSupp) }
     }
 }

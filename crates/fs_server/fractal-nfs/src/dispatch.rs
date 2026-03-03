@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::Nfs3Filesystem;
 use crate::mount;
 use crate::nfs3_types::*;
-use crate::nfs3_wire::*;
+use crate::nfs3_wire::{self, *};
 use crate::rpc::{self, RpcCallHeader};
 use crate::xdr::{XdrReader, XdrWriter};
 
@@ -70,7 +70,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.getattr(&args.fh, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.getattr(&args.fh, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_getattr_err(&mut w, status);
+            }
             w
         }
 
@@ -81,7 +85,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.setattr(&args.fh, &args.new_attrs, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.setattr(&args.fh, &args.new_attrs, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_setattr_err(&mut w, status);
+            }
             w
         }
 
@@ -92,7 +100,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.lookup(&args.dir_fh, &args.name, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.lookup(&args.dir_fh, &args.name, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_lookup_err(&mut w, status, None);
+            }
             w
         }
 
@@ -103,7 +115,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.access(&args.fh, args.access, uid, gid, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.access(&args.fh, args.access, uid, gid, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_access_err(&mut w, status);
+            }
             w
         }
 
@@ -114,7 +130,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::with_capacity(args.count as usize + 256);
             rpc::write_reply_accepted(&mut w, xid);
-            fs.read(&args.fh, args.offset, args.count, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.read(&args.fh, args.offset, args.count, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_read_err(&mut w, status);
+            }
             w
         }
 
@@ -125,8 +145,14 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.write(&args.fh, args.offset, &args.data, args.stable, &mut w)
-                .await;
+            let pos = w.len();
+            if let Err(status) = fs
+                .write(&args.fh, args.offset, &args.data, args.stable, &mut w)
+                .await
+            {
+                w.truncate(pos);
+                nfs3_wire::encode_write_err(&mut w, status);
+            }
             w
         }
 
@@ -137,7 +163,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.create(&args.dir_fh, &args.name, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.create(&args.dir_fh, &args.name, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_create_err(&mut w, status);
+            }
             w
         }
 
@@ -148,7 +178,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.mkdir(&args.dir_fh, &args.name, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.mkdir(&args.dir_fh, &args.name, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_mkdir_err(&mut w, status);
+            }
             w
         }
 
@@ -159,7 +193,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.remove(&args.dir_fh, &args.name, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.remove(&args.dir_fh, &args.name, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_remove_err(&mut w, status);
+            }
             w
         }
 
@@ -170,7 +208,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.rmdir(&args.dir_fh, &args.name, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.rmdir(&args.dir_fh, &args.name, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_remove_err(&mut w, status);
+            }
             w
         }
 
@@ -181,14 +223,20 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.rename(
-                &args.from_dir,
-                &args.from_name,
-                &args.to_dir,
-                &args.to_name,
-                &mut w,
-            )
-            .await;
+            let pos = w.len();
+            if let Err(status) = fs
+                .rename(
+                    &args.from_dir,
+                    &args.from_name,
+                    &args.to_dir,
+                    &args.to_name,
+                    &mut w,
+                )
+                .await
+            {
+                w.truncate(pos);
+                nfs3_wire::encode_rename_err(&mut w, status);
+            }
             w
         }
 
@@ -199,8 +247,14 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.readdir(&args.dir_fh, args.cookie, args.count, &mut w)
-                .await;
+            let pos = w.len();
+            if let Err(status) = fs
+                .readdir(&args.dir_fh, args.cookie, args.count, &mut w)
+                .await
+            {
+                w.truncate(pos);
+                nfs3_wire::encode_readdir_err(&mut w, status);
+            }
             w
         }
 
@@ -211,8 +265,14 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.readdirplus(&args.dir_fh, args.cookie, args.maxcount, &mut w)
-                .await;
+            let pos = w.len();
+            if let Err(status) = fs
+                .readdirplus(&args.dir_fh, args.cookie, args.maxcount, &mut w)
+                .await
+            {
+                w.truncate(pos);
+                nfs3_wire::encode_readdirplus_err(&mut w, status);
+            }
             w
         }
 
@@ -223,7 +283,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.fsstat(&args.fh, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.fsstat(&args.fh, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_fsstat_err(&mut w, status);
+            }
             w
         }
 
@@ -234,7 +298,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.fsinfo(&args.fh, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.fsinfo(&args.fh, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_fsinfo_err(&mut w, status);
+            }
             w
         }
 
@@ -245,7 +313,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.pathconf(&args.fh, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.pathconf(&args.fh, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_pathconf_err(&mut w, status);
+            }
             w
         }
 
@@ -256,7 +328,11 @@ async fn dispatch_nfs3<F: Nfs3Filesystem>(
             };
             let mut w = XdrWriter::new();
             rpc::write_reply_accepted(&mut w, xid);
-            fs.commit(&args.fh, args.offset, args.count, &mut w).await;
+            let pos = w.len();
+            if let Err(status) = fs.commit(&args.fh, args.offset, args.count, &mut w).await {
+                w.truncate(pos);
+                nfs3_wire::encode_commit_err(&mut w, status);
+            }
             w
         }
 
