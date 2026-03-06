@@ -297,7 +297,7 @@ impl VfsCore {
             {
                 cached
             } else {
-                let data = self
+                let (data, _checksum) = self
                     .backend()
                     .read_block(blob_guid, block_num, block_content_len, &trace_id)
                     .await?;
@@ -328,7 +328,7 @@ impl VfsCore {
             {
                 cached
             } else {
-                let data = self
+                let (data, _checksum) = self
                     .backend()
                     .read_block(blob_guid, block_num, block_content_len, &trace_id)
                     .await?;
@@ -415,7 +415,7 @@ impl VfsCore {
                     {
                         cached
                     } else {
-                        let data = self
+                        let (data, _checksum) = self
                             .backend()
                             .read_block(blob_guid, block_num, block_content_len, &trace_id)
                             .await?;

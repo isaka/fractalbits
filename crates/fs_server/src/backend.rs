@@ -223,19 +223,21 @@ impl StorageBackend {
         Ok(parse_mpu_parts(parse_list_inodes(resp)?)?)
     }
 
-    /// Read a single block from a data blob via DataVgProxy
+    /// Read a single block from a data blob via DataVgProxy.
+    /// Returns `(data, xxh3_64_checksum)`.
     pub async fn read_block(
         &self,
         blob_guid: DataBlobGuid,
         block_number: u32,
         content_len: usize,
         trace_id: &TraceId,
-    ) -> Result<Bytes, FsError> {
+    ) -> Result<(Bytes, u64), FsError> {
         let mut body = Bytes::new();
         self.data_vg_proxy
             .get_blob(blob_guid, block_number, content_len, &mut body, trace_id)
             .await?;
-        Ok(body)
+        let checksum = xxhash_rust::xxh3::xxh3_64(&body);
+        Ok((body, checksum))
     }
 
     /// Create a new data blob GUID via DataVgProxy.
