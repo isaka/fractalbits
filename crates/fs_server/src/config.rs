@@ -41,6 +41,22 @@ pub struct Config {
     pub block_cache_size_mb: u64,
     #[serde(default)]
     pub read_write: bool,
+
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub disk_cache_enabled: bool,
+    #[serde(default = "default_disk_cache_path")]
+    #[allow(dead_code)]
+    pub disk_cache_path: String,
+    #[serde(default = "default_disk_cache_size_gb")]
+    #[allow(dead_code)]
+    pub disk_cache_size_gb: u64,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub passthrough_enabled: bool,
+    #[serde(default = "default_passthrough_max_object_size_gb")]
+    #[allow(dead_code)]
+    pub passthrough_max_object_size_gb: u64,
 }
 
 fn default_rpc_request_timeout() -> u64 {
@@ -66,6 +82,15 @@ fn default_block_cache_size_mb() -> u64 {
 }
 fn default_nfs_port() -> u16 {
     2049
+}
+fn default_disk_cache_path() -> String {
+    "/var/cache/fractalbits/".to_string()
+}
+fn default_disk_cache_size_gb() -> u64 {
+    50
+}
+fn default_passthrough_max_object_size_gb() -> u64 {
+    10
 }
 
 impl Config {
@@ -108,6 +133,11 @@ impl Default for Config {
             block_cache_size_mb: default_block_cache_size_mb(),
             nfs_port: default_nfs_port(),
             read_write: false,
+            disk_cache_enabled: false,
+            disk_cache_path: default_disk_cache_path(),
+            disk_cache_size_gb: default_disk_cache_size_gb(),
+            passthrough_enabled: false,
+            passthrough_max_object_size_gb: default_passthrough_max_object_size_gb(),
         }
     }
 }
