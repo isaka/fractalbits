@@ -8,6 +8,8 @@ use bytes::Bytes;
 use compio_buf::BufResult;
 use compio_fs::{File, OpenOptions};
 use compio_io::{AsyncReadAt, AsyncWriteAt};
+
+use crate::slice_mut::SliceMut;
 use lru::LruCache;
 use uuid::Uuid;
 
@@ -272,6 +274,67 @@ impl DiskCache {
 
         self.tracker.touch(blob_id, vol);
         Some(Bytes::from(data))
+    }
+
+    /// Read a cached block directly into a caller-provided buffer (zero-copy path).
+    ///
+    /// Returns `Some(bytes_read)` on hit, `None` on miss or checksum failure.
+    /// The first `bytes_read` bytes of `buf` contain the block data.
+    pub async fn get_into(
+        &self,
+        blob_id: Uuid,
+        vol: u16,
+        block: u32,
+        content_length: u64,
+        buf: &mut [u8],
+    ) -> Option<usize> {
+        let path = self.cache_file_path(blob_id, vol);
+        let file = File::open(&path).await.ok()?;
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&file);
+
+        if !is_block_populated(fd, block, self.block_size) {
+            return None;
+        }
+
+        let block_offset = block as u64 * self.block_size;
+        let block_end = std::cmp::min(block_offset + self.block_size, content_length);
+        let block_len = (block_end - block_offset) as usize;
+
+        if block_len > buf.len() {
+            return None;
+        }
+
+        // Read block data directly into the caller's buffer
+        let slice_buf = unsafe { SliceMut::new(buf.as_mut_ptr(), block_len) };
+        let BufResult(r, _) = file.read_at(slice_buf, block_offset).await;
+        if r.ok()? != block_len {
+            return None;
+        }
+
+        // Read checksum from checksum region
+        let checksum_offset = content_length + block as u64 * 8;
+        let checksum_vec = vec![0u8; 8];
+        let BufResult(r, checksum_buf) = file.read_at(checksum_vec, checksum_offset).await;
+        if r.ok()? != 8 {
+            return None;
+        }
+
+        let stored_checksum = u64::from_le_bytes(checksum_buf[..8].try_into().ok()?);
+
+        // Verify checksum against data already in the caller's buffer
+        let computed = xxhash_rust::xxh3::xxh3_64(&buf[..block_len]);
+        if computed != stored_checksum {
+            tracing::warn!(
+                %blob_id, vol, block,
+                "disk cache checksum mismatch, deleting cache file"
+            );
+            self.tracker.remove(blob_id, vol);
+            let _ = compio_fs::remove_file(&path).await;
+            return None;
+        }
+
+        self.tracker.touch(blob_id, vol);
+        Some(block_len)
     }
 
     /// Write a block to cache. Creates the cache file if it doesn't exist.
@@ -550,6 +613,39 @@ mod tests {
         let result = cache.get(blob_id, vol, 0, content_length).await;
         assert!(result.is_some());
         assert_eq!(result.unwrap().as_ref(), &data[..]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[compio_macros::test]
+    async fn test_get_into() {
+        let dir = test_cache_dir();
+        let cache = DiskCache::new(&dir, 1, 1024).unwrap();
+
+        let blob_id = Uuid::new_v4();
+        let vol = 1u16;
+        let data = vec![42u8; 1024];
+        let checksum = xxhash_rust::xxh3::xxh3_64(&data);
+        let content_length = 4096u64;
+
+        cache
+            .insert(blob_id, vol, 0, content_length, &data, checksum)
+            .await;
+
+        // Read into a pre-allocated buffer
+        let mut buf = vec![0u8; 1024];
+        let result = cache
+            .get_into(blob_id, vol, 0, content_length, &mut buf)
+            .await;
+        assert_eq!(result, Some(1024));
+        assert_eq!(&buf[..], &data[..]);
+
+        // Miss: wrong block
+        let mut buf2 = vec![0u8; 1024];
+        let result = cache
+            .get_into(blob_id, vol, 1, content_length, &mut buf2)
+            .await;
+        assert!(result.is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

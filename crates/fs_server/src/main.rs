@@ -6,6 +6,7 @@ mod error;
 mod fuse_server;
 mod inode;
 mod nfs_server;
+mod slice_mut;
 mod vfs;
 
 use clap::Parser;

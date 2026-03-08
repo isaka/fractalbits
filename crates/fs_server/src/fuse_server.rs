@@ -136,10 +136,9 @@ impl Filesystem for FuseServer {
         _inode: u64,
         fh: u64,
         offset: u64,
-        size: u32,
-    ) -> FsResult<ReplyData> {
-        let data = self.vfs.vfs_read(fh, offset, size).await.map_err(fs_err)?;
-        Ok(ReplyData { data })
+        buf: &mut [u8],
+    ) -> FsResult<usize> {
+        self.vfs.vfs_read(fh, offset, buf).await.map_err(fs_err)
     }
 
     async fn write(
@@ -151,9 +150,9 @@ impl Filesystem for FuseServer {
         data: &[u8],
         _write_flags: u32,
         _flags: u32,
-    ) -> FsResult<ReplyWrite> {
+    ) -> FsResult<usize> {
         let written = self.vfs.vfs_write(fh, offset, data).await.map_err(fs_err)?;
-        Ok(ReplyWrite { written })
+        Ok(written as usize)
     }
 
     async fn flush(&self, _req: Request, _inode: u64, fh: u64, _lock_owner: u64) -> FsResult<()> {

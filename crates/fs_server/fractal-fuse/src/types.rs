@@ -244,16 +244,6 @@ pub struct ReplyOpen {
 }
 
 #[derive(Debug)]
-pub struct ReplyData {
-    pub data: bytes::Bytes,
-}
-
-#[derive(Debug)]
-pub struct ReplyWrite {
-    pub written: u32,
-}
-
-#[derive(Debug)]
 pub struct ReplyCreate {
     pub ttl: Duration,
     pub attr: FileAttr,

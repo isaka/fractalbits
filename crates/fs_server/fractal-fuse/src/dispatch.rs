@@ -214,12 +214,25 @@ async fn dispatch_with_reply<F: Filesystem>(
         }
         FUSE_READ => {
             let arg: &fuse_read_in = entry.header().op_in_as();
+            let fh = arg.fh;
+            let read_offset = arg.offset;
+            let read_size_raw = arg.size;
             debug!(
                 "READ request: nodeid={} fh={} offset={} size={}",
-                nodeid, arg.fh, arg.offset, arg.size
+                nodeid, fh, read_offset, read_size_raw
             );
-            match fs.read(req, nodeid, arg.fh, arg.offset, arg.size).await {
-                Ok(reply) => DispatchResult::Data(reply),
+            let read_size = (read_size_raw as usize).min(entry.payload_len());
+            match fs
+                .read(
+                    req,
+                    nodeid,
+                    fh,
+                    read_offset,
+                    &mut entry.payload_mut()[..read_size],
+                )
+                .await
+            {
+                Ok(n) => DispatchResult::Data(n),
                 Err(e) => DispatchResult::Error(e),
             }
         }
@@ -384,8 +397,10 @@ enum DispatchResult {
     Entry(ReplyEntry),
     Attr(ReplyAttr),
     Open(ReplyOpen),
-    Data(ReplyData),
-    Write(ReplyWrite),
+    /// Data already written directly into the payload buffer by read.
+    /// The usize is the number of valid bytes in the payload.
+    Data(usize),
+    Write(usize),
     Create(ReplyCreate),
     Statfs(ReplyStatfs),
     Readdir(Vec<DirectoryEntry>, u32),
@@ -447,21 +462,16 @@ fn serialize_response(entry: &mut RingEntry, unique: u64, _opcode: u32, result: 
             };
             write_payload_struct(entry, unique, &out);
         }
-        DispatchResult::Data(reply) => {
-            let data = &reply.data;
-            let data_len = data.len().min(entry.payload_len());
-            debug!(
-                "DATA reply: {} bytes, first_bytes={:?}",
-                data_len,
-                &data[..data_len.min(32)]
-            );
+        DispatchResult::Data(n) => {
+            // Data was already written into the payload by read
+            let data_len = n.min(entry.payload_len());
+            debug!("DATA reply (direct): {} bytes", data_len);
             write_out_header(entry, unique, 0, data_len as u32);
-            entry.payload_mut()[..data_len].copy_from_slice(&data[..data_len]);
             entry.header_mut().ring_ent_in_out.payload_sz = data_len as u32;
         }
-        DispatchResult::Write(reply) => {
+        DispatchResult::Write(written) => {
             let out = fuse_write_out {
-                size: reply.written,
+                size: written as u32,
                 padding: 0,
             };
             write_payload_struct(entry, unique, &out);

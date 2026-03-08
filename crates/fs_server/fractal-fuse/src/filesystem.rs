@@ -235,20 +235,21 @@ pub trait Filesystem: Send + Sync + 'static {
         async { Err(ENOSYS) }
     }
 
-    /// Read data from an open file.
+    /// Read data from an open file into a caller-provided buffer.
     ///
-    /// Read up to `size` bytes starting at `offset` from the file identified
-    /// by `fh`. The returned [`ReplyData`] may contain fewer bytes than
-    /// requested (e.g., at EOF).
+    /// Reads up to `buf.len()` bytes starting at `offset` from the file
+    /// identified by `fh`, writing directly into `buf`. Returns the number
+    /// of bytes read. This is the primary read path used by the FUSE
+    /// dispatch layer, avoiding intermediate allocations and copies.
     fn read(
         &self,
         req: Request,
         inode: Inode,
         fh: u64,
         offset: u64,
-        size: u32,
-    ) -> impl std::future::Future<Output = FsResult<ReplyData>> {
-        let _ = (req, inode, fh, offset, size);
+        buf: &mut [u8],
+    ) -> impl std::future::Future<Output = FsResult<usize>> {
+        let _ = (req, inode, fh, offset, buf);
         async { Err(ENOSYS) }
     }
 
@@ -266,7 +267,7 @@ pub trait Filesystem: Send + Sync + 'static {
         data: &[u8],
         write_flags: u32,
         flags: u32,
-    ) -> impl std::future::Future<Output = FsResult<ReplyWrite>> {
+    ) -> impl std::future::Future<Output = FsResult<usize>> {
         let _ = (req, inode, fh, offset, data, write_flags, flags);
         async { Err(ENOSYS) }
     }
@@ -509,7 +510,7 @@ pub trait Filesystem: Send + Sync + 'static {
         off_out: u64,
         length: u64,
         flags: u64,
-    ) -> impl std::future::Future<Output = FsResult<ReplyWrite>> {
+    ) -> impl std::future::Future<Output = FsResult<usize>> {
         let _ = (
             req, inode_in, fh_in, off_in, inode_out, fh_out, off_out, length, flags,
         );

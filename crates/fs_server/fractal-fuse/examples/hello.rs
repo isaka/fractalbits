@@ -19,8 +19,7 @@ use std::time::Duration;
 use fractal_fuse::abi::FUSE_ROOT_ID;
 use fractal_fuse::{
     DirectoryEntry, DirectoryEntryPlus, ENOENT, FileAttr, FileType, Filesystem, FsResult,
-    MountOptions, ReplyAttr, ReplyData, ReplyEntry, ReplyOpen, ReplyStatfs, Request, Session,
-    Timestamp,
+    MountOptions, ReplyAttr, ReplyEntry, ReplyOpen, ReplyStatfs, Request, Session, Timestamp,
 };
 
 const HELLO_INO: u64 = 2;
@@ -123,21 +122,19 @@ impl Filesystem for HelloFs {
         inode: u64,
         _fh: u64,
         offset: u64,
-        size: u32,
-    ) -> FsResult<ReplyData> {
+        buf: &mut [u8],
+    ) -> FsResult<usize> {
         if inode != HELLO_INO {
             return Err(ENOENT);
         }
         let offset = offset as usize;
         if offset >= HELLO_CONTENT.len() {
-            return Ok(ReplyData {
-                data: bytes::Bytes::new(),
-            });
+            return Ok(0);
         }
-        let end = (offset + size as usize).min(HELLO_CONTENT.len());
-        Ok(ReplyData {
-            data: bytes::Bytes::from_static(&HELLO_CONTENT[offset..end]),
-        })
+        let end = (offset + buf.len()).min(HELLO_CONTENT.len());
+        let src = &HELLO_CONTENT[offset..end];
+        buf[..src.len()].copy_from_slice(src);
+        Ok(src.len())
     }
 
     async fn readdir(

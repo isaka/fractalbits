@@ -597,6 +597,189 @@ impl VfsCore {
         Ok(result.freeze())
     }
 
+    // ── Zero-copy read helpers (direct-to-buffer) ──
+
+    /// Read a cached block directly into `buf`. Returns bytes written on hit,
+    /// or `None` on cache miss (caller should fall back to the Bytes path).
+    async fn read_block_cached_into(
+        &self,
+        blob_guid: data_types::DataBlobGuid,
+        block_num: u32,
+        file_size: u64,
+        buf: &mut [u8],
+    ) -> Option<usize> {
+        if let Some(dc) = &self.disk_cache {
+            dc.get_into(
+                blob_guid.blob_id,
+                blob_guid.volume_id,
+                block_num,
+                file_size,
+                buf,
+            )
+            .await
+        } else {
+            None
+        }
+    }
+
+    /// Read a normal (non-MPU) object directly into a buffer.
+    /// Returns the number of bytes written, or falls back to the Bytes path
+    /// on any cache miss.
+    async fn read_normal_buf(
+        &self,
+        layout: &ObjectLayout,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, FsError> {
+        let file_size = layout.size()?;
+        let size = buf.len() as u32;
+        if size == 0 || offset >= file_size {
+            return Ok(0);
+        }
+
+        let blob_guid = layout.blob_guid()?;
+        let block_size = layout.block_size as u64;
+        let read_end = std::cmp::min(offset.saturating_add(size as u64), file_size);
+        let actual_len = (read_end - offset) as usize;
+
+        let first_block = (offset / block_size) as u32;
+        let last_block = ((read_end - 1) / block_size) as u32;
+
+        let mut written = 0usize;
+
+        for block_num in first_block..=last_block {
+            let block_start = block_num as u64 * block_size;
+            let block_content_len = std::cmp::min(block_size, file_size - block_start) as usize;
+
+            let slice_start = if block_num == first_block {
+                (offset - block_start) as usize
+            } else {
+                0
+            };
+            let slice_end = if block_num == last_block {
+                (read_end - block_start) as usize
+            } else {
+                block_content_len
+            };
+            let chunk_len = slice_end.saturating_sub(slice_start);
+
+            if slice_start == 0 && chunk_len == block_content_len {
+                // Whole block: read directly into the output buffer
+                if let Some(n) = self
+                    .read_block_cached_into(
+                        blob_guid,
+                        block_num,
+                        file_size,
+                        &mut buf[written..written + chunk_len],
+                    )
+                    .await
+                {
+                    let copy_len = n.min(chunk_len);
+                    written += copy_len;
+                    continue;
+                }
+            } else {
+                // Partial block: try to read full block into a temp region, then
+                // slice the needed portion
+                let mut tmp = vec![0u8; block_content_len];
+                if let Some(n) = self
+                    .read_block_cached_into(blob_guid, block_num, file_size, &mut tmp)
+                    .await
+                {
+                    let end = slice_end.min(n);
+                    if slice_start < end {
+                        let copy_len = end - slice_start;
+                        buf[written..written + copy_len].copy_from_slice(&tmp[slice_start..end]);
+                        written += copy_len;
+                        continue;
+                    }
+                }
+            }
+
+            // Cache miss: fall back to the Bytes path for this block and
+            // the remaining blocks
+            let trace_id = TraceId::new();
+            let remaining = &mut buf[written..];
+            let mut remaining_offset = written;
+
+            for bn in block_num..=last_block {
+                let bs = bn as u64 * block_size;
+                let bcl = std::cmp::min(block_size, file_size - bs) as usize;
+
+                let block_data = self
+                    .read_block_cached(blob_guid, bn, bcl, file_size, &trace_id)
+                    .await?;
+
+                let ss = if bn == first_block {
+                    (offset - bs) as usize
+                } else {
+                    0
+                };
+                let se = if bn == last_block {
+                    (read_end - bs) as usize
+                } else {
+                    block_data.len()
+                };
+
+                if ss < block_data.len() {
+                    let end = std::cmp::min(se, block_data.len());
+                    let copy_len = end - ss;
+                    let dest_end = (remaining_offset - written) + copy_len;
+                    remaining[remaining_offset - written..dest_end]
+                        .copy_from_slice(&block_data[ss..end]);
+                    remaining_offset += copy_len;
+                }
+            }
+
+            return Ok(remaining_offset);
+        }
+
+        Ok(written.min(actual_len))
+    }
+
+    /// Read data directly into a caller-provided buffer (zero-copy path).
+    ///
+    /// Tries to read from disk cache directly into `buf`. For cache misses
+    /// or unsupported object states, falls back to the Bytes path internally.
+    pub async fn vfs_read(&self, fh: u64, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let handle = self.file_handles.get(&fh).ok_or(FsError::BadFd)?;
+
+        // Dirty write buffer: copy from it
+        if let Some(ref wb) = handle.write_buf
+            && wb.dirty
+        {
+            let buf_len = wb.data.len() as u64;
+            if offset >= buf_len {
+                return Ok(0);
+            }
+            let end = std::cmp::min(offset + buf.len() as u64, buf_len) as usize;
+            let src = &wb.data[offset as usize..end];
+            buf[..src.len()].copy_from_slice(src);
+            return Ok(src.len());
+        }
+
+        let layout = match &handle.layout {
+            Some(l) => l.clone(),
+            None => return Ok(0),
+        };
+        let s3_key = handle.s3_key.clone();
+        drop(handle);
+
+        match &layout.state {
+            ObjectState::Normal(_) => self.read_normal_buf(&layout, offset, buf).await,
+            ObjectState::Mpu(MpuState::Completed(_)) => {
+                // MPU: fall back to the Bytes path and copy
+                let data = self
+                    .read_mpu(&s3_key, &layout, offset, buf.len() as u32)
+                    .await?;
+                let n = data.len().min(buf.len());
+                buf[..n].copy_from_slice(&data[..n]);
+                Ok(n)
+            }
+            _ => Err(FsError::InvalidState),
+        }
+    }
+
     // ── Write helpers ──
 
     async fn flush_write_buffer(&self, fh_id: u64) -> Result<(), FsError> {
@@ -1002,7 +1185,9 @@ impl VfsCore {
         Ok(fh)
     }
 
-    pub async fn vfs_read(&self, fh: u64, offset: u64, size: u32) -> Result<Bytes, FsError> {
+    /// Read data from an open file handle, returning owned Bytes.
+    /// Used by NFS path (vfs_read_by_ino) which needs owned data.
+    async fn vfs_read_bytes(&self, fh: u64, offset: u64, size: u32) -> Result<Bytes, FsError> {
         let handle = self.file_handles.get(&fh).ok_or(FsError::BadFd)?;
 
         // If there's a dirty write buffer, read from it
@@ -1388,7 +1573,7 @@ impl VfsCore {
         count: u32,
     ) -> Result<Bytes, FsError> {
         let fh = self.vfs_open(inode, libc::O_RDONLY as u32).await?;
-        let result = self.vfs_read(fh, offset, count).await;
+        let result = self.vfs_read_bytes(fh, offset, count).await;
         let _ = self.vfs_release(fh).await;
         result
     }

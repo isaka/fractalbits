@@ -15,7 +15,6 @@ compio-runtime = { version = "0.11", features = ["time"] }
 compio-driver = { version = "0.11", features = ["io-uring-sqe128"] }
 libc = "0.2"
 nix = { version = "0.31", features = ["fs", "socket", "uio"] }
-bytes = "1"
 tracing = "0.1"
 which = "8"
 pin-project-lite = "0.2"
